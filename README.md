@@ -4,4 +4,4 @@ To install the extension:
 
     Enable 'Developer mode' (usually using the toggle in the top-right corner).
 
-    Click the 'Load unpacked' button and select the folder containing the extension's files."
+    Click the 'Load unpacked' button and select the folder containing the extension's files.
